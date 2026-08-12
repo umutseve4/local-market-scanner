@@ -35,9 +35,7 @@ class BuildQueryTests(unittest.TestCase):
 
 class ParseElementTests(unittest.TestCase):
     def test_skips_unnamed_elements(self):
-        self.assertIsNone(
-            parse_element({"type": "node", "id": 1, "tags": {"amenity": "clinic"}})
-        )
+        self.assertIsNone(parse_element({"type": "node", "id": 1, "tags": {"amenity": "clinic"}}))
 
     def test_skips_elements_without_tags(self):
         self.assertIsNone(parse_element({"type": "node", "id": 1}))

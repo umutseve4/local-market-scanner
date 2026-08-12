@@ -29,9 +29,7 @@ class NormalisePhoneTests(unittest.TestCase):
         self.assertEqual(normalise_phone("902241112233"), "+902241112233")
 
     def test_takes_first_of_multiple(self):
-        self.assertEqual(
-            normalise_phone("0224 111 22 33; 0224 444 55 66"), "+902241112233"
-        )
+        self.assertEqual(normalise_phone("0224 111 22 33; 0224 444 55 66"), "+902241112233")
 
     def test_rejects_too_short(self):
         self.assertIsNone(normalise_phone("123"))

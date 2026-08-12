@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "local-market-scanner"
 version = "0.1.0"
-description = "Scores digital presence of public health-sector businesses and ranks leads."
+description = "Scores the digital presence of public health-sector businesses and ranks outreach leads."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
