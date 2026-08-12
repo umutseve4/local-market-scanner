@@ -10,7 +10,6 @@ Examples
 from __future__ import annotations
 
 import argparse
-import csv
 import json
 import logging
 import sys
@@ -83,6 +82,8 @@ def cmd_scan(args: argparse.Namespace) -> int:
 
 
 def cmd_leads(args: argparse.Namespace) -> int:
+    import csv
+
     path = Path(args.csv)
     if not path.exists():
         logger.error("CSV not found: %s. Run 'scan' first.", path)
@@ -159,7 +160,7 @@ def main(argv: list[str] | None = None) -> int:
     _configure_logging(args.verbose)
     try:
         return int(args.func(args))
-    except Exception as exc:  # noqa: BLE001 - top-level guard for CLI UX
+    except Exception as exc:
         logger.exception("Command failed: %s", exc)
         return 2
 

@@ -8,7 +8,7 @@ from .models import Business
 
 
 def without_website(businesses: Iterable[Business]) -> list[Business]:
-    """Facilities with no usable website — the strongest sales signal."""
+    """Facilities with no usable website - the strongest sales signal."""
     return [b for b in businesses if not b.has_website]
 
 
