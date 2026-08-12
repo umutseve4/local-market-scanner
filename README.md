@@ -103,9 +103,6 @@ dosyasından okunur.
   atıf ve lisans yükümlülüğün vardır.
 * Overpass genel sunucusu ortak bir kaynaktır: gereksiz tekrarlı sorgu atma,
   sonuçları yerelde sakla.
-* Google Maps HTML'i **kazınmaz** — bu Google Hizmet Şartları'nı ihlal eder.
-  Google verisi istiyorsan resmî Places API'yi kendi anahtarınla kullan
-  (`GOOGLE_PLACES_API_KEY`, henüz uygulanmadı).
 
 ## Bilinen kısıtlar
 
