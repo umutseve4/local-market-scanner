@@ -1,0 +1,85 @@
+{
+  "version": 0.6,
+  "generator": "Overpass API (trimmed sample for tests)",
+  "elements": [
+    {
+      "type": "node",
+      "id": 1001,
+      "lat": 40.1885,
+      "lon": 29.061,
+      "tags": {
+        "name": "Nilüfer Ağız ve Diş Sağlığı Polikliniği",
+        "amenity": "dentist",
+        "healthcare": "dentist",
+        "phone": "0224 123 45 67",
+        "addr:street": "Ihsaniye Caddesi",
+        "addr:housenumber": "12",
+        "addr:city": "Bursa"
+      }
+    },
+    {
+      "type": "node",
+      "id": 1002,
+      "lat": 40.1935,
+      "lon": 29.0725,
+      "tags": {
+        "name": "Örnek Fizyoterapi Merkezi",
+        "healthcare": "physiotherapist",
+        "contact:phone": "+90 224 987 65 43",
+        "website": "www.ornekfizyoterapi.com",
+        "opening_hours": "Mo-Fr 09:00-18:00",
+        "contact:instagram": "https://instagram.com/ornekfizyoterapi",
+        "email": "info@ornekfizyoterapi.com",
+        "addr:city": "Bursa"
+      }
+    },
+    {
+      "type": "way",
+      "id": 2001,
+      "center": { "lat": 40.2222, "lon": 29.0101 },
+      "tags": {
+        "name": "Osmangazi Devlet Hastanesi Ek Bina",
+        "amenity": "hospital",
+        "phone": "02241112233",
+        "addr:city": "Bursa"
+      }
+    },
+    {
+      "type": "node",
+      "id": 1003,
+      "lat": 40.201,
+      "lon": 29.045,
+      "tags": {
+        "name": "Merkez Eczanesi",
+        "amenity": "pharmacy",
+        "phone": "0224 555 00 11",
+        "website": "yok",
+        "addr:city": "Bursa"
+      }
+    },
+    {
+      "type": "node",
+      "id": 1004,
+      "lat": 40.19,
+      "lon": 29.05,
+      "tags": {
+        "amenity": "clinic",
+        "phone": "0224 000 00 00"
+      }
+    },
+    {
+      "type": "node",
+      "id": 1005,
+      "lat": 40.215,
+      "lon": 29.02,
+      "tags": {
+        "name": "Görme Optik",
+        "shop": "optician",
+        "contact:phone": "0224 444 33 22",
+        "contact:facebook": "facebook.com/gormeoptik",
+        "opening_hours": "Mo-Sa 09:00-19:00",
+        "addr:city": "Bursa"
+      }
+    }
+  ]
+}
