@@ -1,11 +1,21 @@
 # local-market-scanner
 
+[![CI](https://github.com/umutseve4/local-market-scanner/actions/workflows/ci.yml/badge.svg)](https://github.com/umutseve4/local-market-scanner/actions/workflows/ci.yml)
+[![scan](https://github.com/umutseve4/local-market-scanner/actions/workflows/scan.yml/badge.svg)](https://github.com/umutseve4/local-market-scanner/actions/workflows/scan.yml)
+![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)
+![License](https://img.shields.io/badge/license-MIT-green)
+
 Bursa sağlık sektöründeki işletmelerin **kamuya açık** dijital ayak izini tarar,
 her işletmeye bir *dijital olgunluk skoru* verir ve "web sitesi / sosyal medya
 hizmetine ihtiyacı olan" işletmeleri önceliklendirilmiş bir liste hâlinde çıkarır.
 
 Bu bir satış aracı değil, bir **veri aracıdır**: çıktı, elle doğrulanması
 gereken bir aday listesidir.
+
+> **Canlı doğrulama (2026-08-16):** GitHub Actions üzerinde gerçek Overpass
+> API'ye karşı uçtan uca koştu — **989 işletme tarandı, 785 nitelikli lead**
+> üretildi (1m 15s). Koşu kayıtları:
+> [Actions → scan](https://github.com/umutseve4/local-market-scanner/actions/workflows/scan.yml).
 
 ---
 
@@ -66,6 +76,19 @@ Ağırlıklar `src/lms/models.py` içinde tek bir yerde tanımlıdır; kara kutu
 değildir, değiştirilebilir ve testlerle sabitlenmiştir.
 
 ---
+
+## Bulutta çalıştır (kurulumsuz)
+
+Depoyu klonlamadan, tarayıcıdan tek tıkla tarama:
+
+1. **Actions → scan → Run workflow** (bbox boş bırakılırsa Bursa varsayılanı).
+2. Koşu bitince **Summary** sekmesinde ilk lead'ler görünür.
+3. **Artifacts → scan-results** içinde `leads.csv`, `lms.db`, `brief.md` ve
+   `contract_report.md` 30 gün saklanır.
+
+Workflow tanımı: [`.github/workflows/scan.yml`](.github/workflows/scan.yml)
+— `doctor` ön kontrolü → `scan --track` (SQLite'a koşu kaydı) → `validate`
+(veri sözleşmesi) → `brief` → özet + artifact.
 
 ## Kurulum
 
@@ -250,6 +273,7 @@ src/lms/
 tests/                # 179 test, ağ erişimi yok
 sql/schema.sql        # PostgreSQL şeması (businesses + scan_runs + business_history)
 docs/ARCHITECTURE.md  # modül haritası, veri akışı, tasarım kararları
+.github/workflows/    # ci.yml (test+lint+pg) ve scan.yml (bulut taraması)
 docker-compose.yml    # tek komutla yerel Postgres 16 + şema
 ```
 
@@ -262,25 +286,12 @@ Sadece **gerçekten doğrulanmış** olanlar işaretlidir:
 | Planlandı     | ✅                                                              |
 | Uygulandı     | ✅ 8 CLI komutu, retry + mirror, history, contract, Parquet, PG  |
 | Test edildi   | ✅ 179 test, tamamı offline, hepsi yeşil                        |
-| Doğrulandı    | 🟡 Kısmi — CLI zinciri (`doctor → scan → leads → brief`) uçtan   |
-|               | uca çalıştırıldı; **gerçek Overpass ağ çağrısı doğrulanmadı**   |
-| Dağıtıldı     | ⬜ Yok (yerel CLI aracı)                                        |
-| Üretime hazır | ⬜ Hayır                                                        |
-
-### Ağ katmanı neden "doğrulanmadı"?
-
-Bu depo, dışa TLS erişimi olmayan bir ortamda geliştirildi; `overpass-api.de`
-çağrıları `CERTIFICATE_VERIFY_FAILED` ile döndü. Bu yüzden retry/mirror
-mantığı **birim testleriyle** (`test_overpass_retry.py`) doğrulanmıştır,
-canlı bir sorguyla değil. Kendi makinende ilk adım:
-
-```bash
-PYTHONPATH=src python -m lms.cli doctor
-```
-
-Her endpoint için `OK` veya hata satırı basar. Tüm endpoint'ler düşükse
-çıkış kodu `3`'tür. Kurumsal proxy arkasındaysan `REQUESTS_CA_BUNDLE`
-ayarla — kodda TLS doğrulaması **asla** kapatılmaz.
+| Doğrulandı    | ✅ Canlı Overpass taraması GitHub Actions'ta uçtan uca koştu     |
+|               | (2026-08-16: 989 işletme, 785 lead, 1m 15s — `scan #2`)         |
+| Dağıtıldı     | ✅ `workflow_dispatch` ile bulutta tek tıkla koşuyor; çıktılar   |
+|               | artifact olarak 30 gün saklanıyor                               |
+| Üretime hazır | 🟡 Kısmi — zamanlanmış (cron) koşu ve dönüşüm verisiyle skor    |
+|               | kalibrasyonu yok; skor hâlâ hipotez                             |
 
 ## Katkı ve güvenlik
 
