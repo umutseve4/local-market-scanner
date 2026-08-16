@@ -22,13 +22,19 @@ import argparse
 import csv
 import json
 import logging
+import os
 import sys
 from pathlib import Path
 
+from . import __version__
 from .config import BURSA_BBOX, Settings
-from .errors import ConfigError, SourceError
+from .contract import check_contract
+from .errors import ConfigError, MissingDependencyError, SourceError
+from .exports import export_parquet
+from .history import changes_for_run, list_runs, record_scan_run
 from .models import Business, validate
 from .outreach import render_brief
+from .pg_loader import load_postgres
 from .scoring import qualified_leads, summarise
 from .sources import overpass
 from .storage import upsert_sqlite, write_csv
@@ -89,10 +95,22 @@ def cmd_scan(args: argparse.Namespace) -> int:
     rows = write_csv(businesses, Path(args.out))
     print(f"CSV written: {args.out} ({rows} rows)")
 
-    if args.sqlite:
+    if args.sqlite or args.track:
         db_path = Path(args.db_path or settings.db_path)
-        upsert_sqlite(businesses, db_path)
-        print(f"SQLite updated: {db_path}")
+        if args.track:
+            result = record_scan_run(
+                businesses,
+                db_path,
+                bbox=None if args.fixture else args.bbox,
+            )
+            print(
+                f"SQLite updated: {db_path} (run #{result.run_id}: "
+                f"{result.new} new, {result.changed} changed, "
+                f"{result.unchanged} unchanged)"
+            )
+        else:
+            upsert_sqlite(businesses, db_path)
+            print(f"SQLite updated: {db_path}")
 
     _print_summary(businesses)
     return EXIT_OK
@@ -218,11 +236,108 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def cmd_runs(args: argparse.Namespace) -> int:
+    """Show recorded scan runs, or the changes inside one run."""
+    settings = Settings.from_env()
+    db_path = Path(args.db_path or settings.db_path)
+    if not db_path.exists():
+        logger.error("SQLite DB not found: %s. Run 'scan --sqlite --track'.", db_path)
+        return EXIT_FAILURE
+
+    if args.changes is not None:
+        changes = changes_for_run(db_path, args.changes)
+        print(f"{len(changes)} change(s) in run #{args.changes}\n")
+        for change in changes:
+            snapshot = change["snapshot"]
+            print(
+                f"[{change['change_type']:>9}] {change['source']}:"
+                f"{change['source_id']} | {snapshot.get('name', '-')}"
+            )
+        return EXIT_OK
+
+    runs = list_runs(db_path, limit=args.limit)
+    if not runs:
+        print("No scan runs recorded yet. Use 'scan --sqlite --track'.")
+        return EXIT_OK
+    print(f"{'run':>4} | {'started_at':<20} | {'total':>5} | "
+          f"{'new':>4} | {'chg':>4} | {'same':>4} | source")
+    for run in runs:
+        print(
+            f"{run['run_id']:>4} | {run['started_at']:<20} | "
+            f"{run['total_count']:>5} | {run['new_count']:>4} | "
+            f"{run['changed_count']:>4} | {run['unchanged_count']:>4} | "
+            f"{run['source']}"
+        )
+    return EXIT_OK
+
+
+def cmd_validate(args: argparse.Namespace) -> int:
+    """Run the data contract over a scan CSV; exit 1 on any violation."""
+    path = Path(args.csv)
+    if not path.exists():
+        logger.error("CSV not found: %s. Run 'scan' first.", path)
+        return EXIT_FAILURE
+
+    report = check_contract(load_csv(path))
+    summary = report.summary()
+    print(
+        f"Contract: {summary['passed_records']}/{summary['total_records']} "
+        f"records pass, {summary['violations']} violation(s) "
+        f"-> {'PASS' if report.ok else 'FAIL'}"
+    )
+    for violation in report.violations[: args.limit]:
+        print(f"  [{violation.rule}] {violation.key}: {violation.detail}")
+
+    if args.report:
+        out_path = Path(args.report)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        if out_path.suffix.lower() == ".json":
+            out_path.write_text(report.to_json(), encoding="utf-8")
+        else:
+            out_path.write_text(report.to_markdown(), encoding="utf-8")
+        print(f"Report written: {out_path}")
+
+    return EXIT_OK if report.ok else EXIT_FAILURE
+
+
+def cmd_export(args: argparse.Namespace) -> int:
+    """Export a scan CSV to date-partitioned Parquet."""
+    path = Path(args.csv)
+    if not path.exists():
+        logger.error("CSV not found: %s. Run 'scan' first.", path)
+        return EXIT_FAILURE
+
+    target, rows = export_parquet(
+        load_csv(path), Path(args.out_dir), scan_date=args.scan_date
+    )
+    print(f"Parquet written: {target} ({rows} rows)")
+    return EXIT_OK
+
+
+def cmd_load_pg(args: argparse.Namespace) -> int:
+    """Load a scan CSV into PostgreSQL (idempotent upsert)."""
+    path = Path(args.csv)
+    if not path.exists():
+        logger.error("CSV not found: %s. Run 'scan' first.", path)
+        return EXIT_FAILURE
+
+    dsn = args.dsn or os.environ.get("LMS_PG_DSN", "")
+    count = load_postgres(load_csv(path), dsn)
+    print(f"PostgreSQL loaded: {count} rows -> {TABLE_MSG}")
+    return EXIT_OK
+
+
+TABLE_MSG = "businesses (ON CONFLICT upsert)"
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="lms", description="Local market scanner for health-sector leads."
     )
     parser.add_argument("-v", "--verbose", action="store_true")
+    parser.add_argument(
+        "--version", action="version", version=f"%(prog)s {__version__}"
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
     scan = sub.add_parser("scan", help="Fetch facilities and export them.")
@@ -232,6 +347,11 @@ def build_parser() -> argparse.ArgumentParser:
     scan.add_argument("--sqlite", action="store_true", help="Also upsert into SQLite.")
     scan.add_argument("--db-path", help="Override the SQLite path.")
     scan.add_argument("--strict", action="store_true", help="Fail on validation errors.")
+    scan.add_argument(
+        "--track",
+        action="store_true",
+        help="With --sqlite: record this scan as a run with change history.",
+    )
     scan.set_defaults(func=cmd_scan)
 
     leads = sub.add_parser("leads", help="Rank qualified leads from a scan CSV.")
@@ -260,6 +380,44 @@ def build_parser() -> argparse.ArgumentParser:
     )
     doctor.set_defaults(func=cmd_doctor)
 
+    runs = sub.add_parser("runs", help="List recorded scan runs and their changes.")
+    runs.add_argument("--db-path", help="Override the SQLite path.")
+    runs.add_argument("--limit", type=int, default=20)
+    runs.add_argument(
+        "--changes", type=int, metavar="RUN_ID",
+        help="Show new/changed records of one run instead of the run list.",
+    )
+    runs.set_defaults(func=cmd_runs)
+
+    validate_cmd = sub.add_parser(
+        "validate", help="Run the data contract over a scan CSV."
+    )
+    validate_cmd.add_argument("--csv", default="data/bursa_health.csv")
+    validate_cmd.add_argument(
+        "--report", help="Write the report to this path (.json or .md)."
+    )
+    validate_cmd.add_argument("--limit", type=int, default=20)
+    validate_cmd.set_defaults(func=cmd_validate)
+
+    export = sub.add_parser(
+        "export", help="Export a scan CSV to date-partitioned Parquet."
+    )
+    export.add_argument("--csv", default="data/bursa_health.csv")
+    export.add_argument("--out-dir", default="data/parquet")
+    export.add_argument(
+        "--scan-date", help="Partition date YYYY-MM-DD (default: today, UTC)."
+    )
+    export.set_defaults(func=cmd_export)
+
+    load_pg = sub.add_parser(
+        "load-pg", help="Load a scan CSV into PostgreSQL (idempotent)."
+    )
+    load_pg.add_argument("--csv", default="data/bursa_health.csv")
+    load_pg.add_argument(
+        "--dsn", help="PostgreSQL DSN; falls back to the LMS_PG_DSN env var."
+    )
+    load_pg.set_defaults(func=cmd_load_pg)
+
     return parser
 
 
@@ -273,6 +431,9 @@ def main(argv: list[str] | None = None) -> int:
         logger.error("Data source unavailable: %s", exc)
         logger.error("Run 'lms doctor' to diagnose the connection.")
         return EXIT_SOURCE_DOWN
+    except MissingDependencyError as exc:
+        logger.error("Missing optional dependency: %s", exc)
+        return EXIT_FAILURE
     except ConfigError as exc:
         logger.error("Configuration error: %s", exc)
         return EXIT_FAILURE
