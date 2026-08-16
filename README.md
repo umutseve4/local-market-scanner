@@ -139,6 +139,7 @@ Tümü isteğe bağlıdır; tam liste ve açıklamalar `.env.example` içinde.
 | `BACKOFF_SECONDS`    | `2.0`                                 | Üstel backoff tabanı                 |
 | `REQUESTS_CA_BUNDLE` | boş                                   | Kurumsal TLS proxy için CA paketi     |
 | `DB_PATH`            | `data/market.sqlite3`                 | SQLite dosya yolu                    |
+| `LMS_PG_DSN`         | boş                                   | `load-pg` için PostgreSQL DSN'i      |
 
 Geçersiz bir değer (örn. `MAX_RETRIES=many`) sessizce yok sayılmaz;
 `ConfigError` fırlatılır ve çıkış kodu `1` olur.

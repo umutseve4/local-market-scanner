@@ -42,7 +42,8 @@ flowchart TD
 1. **Opsiyonel bağımlılıklar import anında değil, kullanım anında yüklenir.**
    `exports.py` ve `pg_loader.py`, `pyarrow`/`psycopg` yoksa
    `MissingDependencyError` fırlatır (kurulum komutu mesajın içindedir).
-   Böylece çekirdek CLI sıfır üçüncü-parti bağımlılıkla çalışır.
+   Böylece çekirdek CLI `pyarrow`/`psycopg` kurulmadan çalışır
+   (zorunlu bağımlılıklar yalnızca `requests` ve `python-dotenv`).
 2. **History diff'i SQLite içinde, tek transaction'da.** `record_scan_run`
    hem `businesses` upsert'ünü hem koşu kaydını aynı transaction'da yapar;
    yarıda kesilirse iki tablo tutarsız kalamaz.
