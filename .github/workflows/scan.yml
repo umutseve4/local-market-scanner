@@ -1,0 +1,63 @@
+name: scan
+
+on:
+  workflow_dispatch:
+    inputs:
+      city:
+        description: "Taranacak sehir"
+        required: true
+        default: "Bursa"
+      sector:
+        description: "Sektor"
+        required: true
+        default: "health"
+      top:
+        description: "Ozette gosterilecek lead sayisi"
+        required: true
+        default: "15"
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: python -m pip install --quiet -e ".[export]"
+
+      - name: Doctor
+        run: lms doctor
+
+      - name: Scan
+        run: >-
+          lms scan
+          --city "${{ github.event.inputs.city }}"
+          --sector "${{ github.event.inputs.sector }}"
+          --out leads.csv
+          --track
+          --sqlite lms.db
+
+      - name: Summary (top leads)
+        run: |
+          {
+            echo "## Tarama ozeti: ${{ github.event.inputs.city }} / ${{ github.event.inputs.sector }}"
+            echo '```'
+            lms leads --sqlite lms.db --top "${{ github.event.inputs.top }}"
+            echo '```'
+            echo ""
+            echo "CSV satir sayisi: $(($(wc -l < leads.csv) - 1))"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: scan-${{ github.event.inputs.city }}-${{ github.event.inputs.sector }}
+          path: |
+            leads.csv
+            lms.db
+          retention-days: 30
