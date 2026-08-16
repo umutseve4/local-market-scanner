@@ -3,15 +3,15 @@ name: scan
 on:
   workflow_dispatch:
     inputs:
-      city:
-        description: "Taranacak sehir"
+      bbox:
+        description: "Bounding box 'south,west,north,east' (bos birak = Bursa varsayilani)"
+        required: false
+        default: ""
+      max_score:
+        description: "Lead esigi (bu skorun altindakiler lead sayilir)"
         required: true
-        default: "Bursa"
-      sector:
-        description: "Sektor"
-        required: true
-        default: "health"
-      top:
+        default: "25"
+      limit:
         description: "Ozette gosterilecek lead sayisi"
         required: true
         default: "15"
@@ -34,20 +34,25 @@ jobs:
         run: lms doctor
 
       - name: Scan
-        run: >-
-          lms scan
-          --city "${{ github.event.inputs.city }}"
-          --sector "${{ github.event.inputs.sector }}"
-          --out leads.csv
-          --track
-          --sqlite lms.db
+        run: |
+          BBOX_ARG=""
+          if [ -n "${{ github.event.inputs.bbox }}" ]; then
+            BBOX_ARG="--bbox ${{ github.event.inputs.bbox }}"
+          fi
+          lms scan $BBOX_ARG --out leads.csv --sqlite --track --db-path lms.db
+
+      - name: Validate contract
+        run: lms validate --csv leads.csv --report contract_report.md || true
+
+      - name: Brief
+        run: lms brief --csv leads.csv --out brief.md --max-score "${{ github.event.inputs.max_score }}"
 
       - name: Summary (top leads)
         run: |
           {
-            echo "## Tarama ozeti: ${{ github.event.inputs.city }} / ${{ github.event.inputs.sector }}"
+            echo "## Tarama ozeti (Bursa saglik sektoru)"
             echo '```'
-            lms leads --sqlite lms.db --top "${{ github.event.inputs.top }}"
+            lms leads --csv leads.csv --max-score "${{ github.event.inputs.max_score }}" --limit "${{ github.event.inputs.limit }}"
             echo '```'
             echo ""
             echo "CSV satir sayisi: $(($(wc -l < leads.csv) - 1))"
@@ -56,8 +61,10 @@ jobs:
       - name: Upload results
         uses: actions/upload-artifact@v4
         with:
-          name: scan-${{ github.event.inputs.city }}-${{ github.event.inputs.sector }}
+          name: scan-results
           path: |
             leads.csv
             lms.db
+            brief.md
+            contract_report.md
           retention-days: 30
