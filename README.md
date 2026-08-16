@@ -98,6 +98,23 @@ PYTHONPATH=src python -m lms.cli brief \
 # 5) Ayarları ve Overpass erişilebilirliğini teşhis et
 PYTHONPATH=src python -m lms.cli doctor
 PYTHONPATH=src python -m lms.cli doctor --offline   # ağa hiç çıkmaz
+
+# 6) Taramayı geçmişe kaydet ve koşular arası farkı gör (v0.3.0)
+PYTHONPATH=src python -m lms.cli scan --fixture tests/fixtures/overpass_sample.json \
+    --out data/sample.csv --track --db-path data/market.sqlite3
+PYTHONPATH=src python -m lms.cli runs --db-path data/market.sqlite3
+PYTHONPATH=src python -m lms.cli runs --db-path data/market.sqlite3 --changes 1
+
+# 7) Veri sözleşmesini doğrula (9 kural; FAIL → çıkış kodu 1)
+PYTHONPATH=src python -m lms.cli validate --csv data/sample.csv --report data/report.json
+
+# 8) Parquet'e aktar (Hive partition: scan_date=YYYY-MM-DD/) — pip install .[export]
+PYTHONPATH=src python -m lms.cli export --csv data/sample.csv --out-dir data/parquet
+
+# 9) PostgreSQL'e yükle (idempotent upsert) — pip install .[pg]
+docker compose up -d          # yerel Postgres 16 + şema
+PYTHONPATH=src python -m lms.cli load-pg --csv data/sample.csv \
+    --dsn postgresql://lms:lms@localhost:5432/lms
 ```
 
 `Makefile` aynı komutları kısayola bağlar: `make scan`, `make leads`,
@@ -122,6 +139,7 @@ Tümü isteğe bağlıdır; tam liste ve açıklamalar `.env.example` içinde.
 | `BACKOFF_SECONDS`    | `2.0`                                 | Üstel backoff tabanı                 |
 | `REQUESTS_CA_BUNDLE` | boş                                   | Kurumsal TLS proxy için CA paketi     |
 | `DB_PATH`            | `data/market.sqlite3`                 | SQLite dosya yolu                    |
+| `LMS_PG_DSN`         | boş                                   | `load-pg` için PostgreSQL DSN'i      |
 
 Geçersiz bir değer (örn. `MAX_RETRIES=many`) sessizce yok sayılmaz;
 `ConfigError` fırlatılır ve çıkış kodu `1` olur.
@@ -151,7 +169,7 @@ PYTHONPATH=src pytest -q                                  # requirements ile
 make coverage                                             # %80 alt sınır
 ```
 
-**127 test, tamamı offline.** Overpass yanıtı
+**179 test, tamamı offline.** Overpass yanıtı
 `tests/fixtures/overpass_sample.json` dosyasından okunur; HTTP katmanı
 `FakeSession`/`FakeResponse` ile taklit edilir. Kapsam:
 
@@ -165,6 +183,11 @@ make coverage                                             # %80 alt sınır
 | `test_config_validation.py`  | Ayar doğrulaması, env parse, anahtar sızıntısı   |
 | `test_outreach.py`           | Brifing çıktısı (deterministik tarih)            |
 | `test_cli_commands.py`       | 4 alt komut uçtan uca + çıkış kodu eşlemesi      |
+| `test_history.py`            | Koşu kaydı, diff (new/changed/unchanged)         |
+| `test_contract.py`           | 9 sözleşme kuralı + JSON/Markdown rapor          |
+| `test_exports.py`            | Parquet partition düzeni, eksik pyarrow hatası   |
+| `test_pg_loader.py`          | Upsert SQL'i, batch, eksik psycopg hatası        |
+| `test_cli_v030.py`           | `runs/validate/export/load-pg` + `--version`     |
 
 ---
 
@@ -213,15 +236,21 @@ Bunlar gerçek kısıtlardır, ileride kapatılacak "eksikler" değil:
 ```
 src/lms/
   config.py           # Settings, doğrulama, Bursa bbox, OSM etiket filtreleri
-  errors.py           # tipli hata hiyerarşisi (ConfigError, OverpassUnavailable...)
+  errors.py           # tipli hata hiyerarşisi + MissingDependencyError
   models.py           # Business, skorlama, telefon/URL normalizasyonu
   scoring.py          # filtreleme ve sıralama
   outreach.py         # Markdown saha brifingi üretimi
   storage.py          # CSV + SQLite
-  cli.py              # scan / leads / brief / doctor komutları
+  history.py          # scan --track: koşu kaydı + koşular arası diff
+  contract.py         # 9 kurallı veri sözleşmesi + JSON/Markdown rapor
+  exports.py          # Hive-partitioned Parquet export (pyarrow opsiyonel)
+  pg_loader.py        # PostgreSQL bulk upsert (psycopg opsiyonel)
+  cli.py              # 8 komut: scan/leads/brief/doctor/runs/validate/export/load-pg
   sources/overpass.py # Overpass QL, retry + mirror fallback, check_status
-tests/                # 127 test, ağ erişimi yok
-sql/schema.sql        # PostgreSQL şeması (SQLite'tan büyüdüğünde)
+tests/                # 179 test, ağ erişimi yok
+sql/schema.sql        # PostgreSQL şeması (businesses + scan_runs + business_history)
+docs/ARCHITECTURE.md  # modül haritası, veri akışı, tasarım kararları
+docker-compose.yml    # tek komutla yerel Postgres 16 + şema
 ```
 
 ## Durum
@@ -231,8 +260,8 @@ Sadece **gerçekten doğrulanmış** olanlar işaretlidir:
 | Aşama         | Durum                                                          |
 | ------------- | -------------------------------------------------------------- |
 | Planlandı     | ✅                                                              |
-| Uygulandı     | ✅ 4 CLI komutu, retry + mirror fallback, brifing üretimi        |
-| Test edildi   | ✅ 127 test, tamamı offline, hepsi yeşil                        |
+| Uygulandı     | ✅ 8 CLI komutu, retry + mirror, history, contract, Parquet, PG  |
+| Test edildi   | ✅ 179 test, tamamı offline, hepsi yeşil                        |
 | Doğrulandı    | 🟡 Kısmi — CLI zinciri (`doctor → scan → leads → brief`) uçtan   |
 |               | uca çalıştırıldı; **gerçek Overpass ağ çağrısı doğrulanmadı**   |
 | Dağıtıldı     | ⬜ Yok (yerel CLI aracı)                                        |

@@ -45,6 +45,40 @@ COMMENT ON TABLE businesses IS
 COMMENT ON COLUMN businesses.digital_maturity_score IS
     '0-100; lower means weaker digital presence, i.e. a stronger lead.';
 
+-- Run-level scan history (PostgreSQL mirror of src/lms/history.py's SQLite
+-- tables, used by `lms scan --track` and `lms runs`).
+
+CREATE TABLE IF NOT EXISTS scan_runs (
+    run_id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    started_at      TIMESTAMPTZ NOT NULL,
+    finished_at     TIMESTAMPTZ,
+    source          TEXT        NOT NULL,
+    bbox            TEXT,
+    total_count     INTEGER     NOT NULL DEFAULT 0,
+    new_count       INTEGER     NOT NULL DEFAULT 0,
+    changed_count   INTEGER     NOT NULL DEFAULT 0,
+    unchanged_count INTEGER     NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS business_history (
+    run_id      BIGINT NOT NULL REFERENCES scan_runs (run_id),
+    source      TEXT   NOT NULL,
+    source_id   TEXT   NOT NULL,
+    change_type TEXT   NOT NULL
+        CHECK (change_type IN ('new', 'changed', 'unchanged')),
+    snapshot    JSONB  NOT NULL,
+    recorded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT business_history_pkey PRIMARY KEY (run_id, source, source_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_history_business
+    ON business_history (source, source_id, run_id);
+
+COMMENT ON TABLE scan_runs IS
+    'One row per tracked scan; counters summarise the diff against the previous run.';
+COMMENT ON TABLE business_history IS
+    'Per-business snapshot for each tracked run; snapshot holds the full record as JSONB.';
+
 -- Example: top outreach candidates.
 --   SELECT name, category, phone, district, digital_maturity_score
 --   FROM businesses

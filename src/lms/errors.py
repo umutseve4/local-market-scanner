@@ -15,6 +15,10 @@ class ConfigError(LmsError):
     """Raised when configuration values are missing or malformed."""
 
 
+class MissingDependencyError(LmsError):
+    """An optional dependency (pyarrow, psycopg, ...) is required but absent."""
+
+
 class SourceError(LmsError):
     """Base class for data-source failures."""
 
