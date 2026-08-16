@@ -1,0 +1,29 @@
+# Local PostgreSQL for `lms load-pg`.
+#
+#   docker compose up -d
+#   export LMS_PG_DSN="postgresql://lms:lms@localhost:5432/lms"
+#   lms load-pg --csv data/bursa_health.csv
+#
+# The schema in sql/schema.sql is applied automatically on first start via
+# the /docker-entrypoint-initdb.d mount.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: lms
+      POSTGRES_PASSWORD: lms
+      POSTGRES_DB: lms
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./sql/schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lms -d lms"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:

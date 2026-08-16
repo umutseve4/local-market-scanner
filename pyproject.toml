@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "local-market-scanner"
-version = "0.2.0"
+dynamic = ["version"]
 description = "Scores the digital presence of public health-sector businesses and ranks outreach leads."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -13,13 +13,28 @@ authors = [{ name = "Umut Sever" }]
 dependencies = ["requests>=2.31", "python-dotenv>=1.0"]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0", "ruff>=0.5"]
+dev = ["pytest>=8.0", "ruff>=0.5", "mypy>=1.10", "coverage>=7.4"]
+export = ["pyarrow>=15.0"]
+pg = ["psycopg[binary]>=3.1"]
 
 [project.scripts]
 lms = "lms.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.dynamic]
+version = { attr = "lms.__version__" }
+
+[tool.mypy]
+python_version = "3.11"
+strict_optional = true
+disallow_untyped_defs = true
+warn_return_any = true
+warn_unused_ignores = true
+no_implicit_optional = true
+ignore_missing_imports = true
+files = ["src/lms"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
