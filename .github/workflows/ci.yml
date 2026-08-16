@@ -27,7 +27,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install ruff coverage
+          pip install ruff coverage pyarrow
 
       - name: Lint (ruff)
         run: ruff check src tests
@@ -43,9 +43,84 @@ jobs:
         env:
           PYTHONPATH: src
         run: |
+          python -m lms.cli --version
           python -m lms.cli doctor --offline
           python -m lms.cli scan --fixture tests/fixtures/overpass_sample.json \
-            --out /tmp/scan.csv
+            --out /tmp/scan.csv --track --db-path /tmp/market.sqlite3
           python -m lms.cli leads --csv /tmp/scan.csv
           python -m lms.cli brief --csv /tmp/scan.csv --out /tmp/brief.md
           test -s /tmp/brief.md
+          python -m lms.cli runs --db-path /tmp/market.sqlite3
+          python -m lms.cli validate --csv /tmp/scan.csv --report /tmp/contract.json
+          test -s /tmp/contract.json
+          python -m lms.cli export --csv /tmp/scan.csv --out-dir /tmp/parquet \
+            --scan-date 2026-01-01
+          test -n "$(find /tmp/parquet -name '*.parquet')"
+
+  typecheck:
+    runs-on: ubuntu-latest
+    # Advisory until the codebase is verified mypy-clean; flip to blocking
+    # by removing continue-on-error once the first green run is observed.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install mypy pyarrow
+      - name: Type check (mypy)
+        run: mypy
+
+  postgres-integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: lms
+          POSTGRES_PASSWORD: lms
+          POSTGRES_DB: lms
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lms -d lms"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install "psycopg[binary]"
+      - name: Apply schema
+        env:
+          PGPASSWORD: lms
+        run: psql -h localhost -U lms -d lms -f sql/schema.sql
+      - name: Load fixture scan into PostgreSQL
+        env:
+          PYTHONPATH: src
+          LMS_PG_DSN: postgresql://lms:lms@localhost:5432/lms
+        run: |
+          python -m lms.cli scan --fixture tests/fixtures/overpass_sample.json \
+            --out /tmp/scan.csv
+          python -m lms.cli load-pg --csv /tmp/scan.csv
+          # Re-run to prove the ON CONFLICT upsert path is idempotent.
+          python -m lms.cli load-pg --csv /tmp/scan.csv
+      - name: Verify row count
+        env:
+          PGPASSWORD: lms
+        run: |
+          count=$(psql -h localhost -U lms -d lms -tAc "SELECT count(*) FROM businesses;")
+          echo "businesses rows: $count"
+          test "$count" = "5"
