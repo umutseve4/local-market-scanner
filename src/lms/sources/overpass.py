@@ -135,7 +135,7 @@ def _retry_delay(
                 return max(0.0, float(header))
             except ValueError:
                 logger.debug("Unparsable Retry-After header: %r", header)
-    return base * (2 ** (attempt - 1))
+    return base * (2.0 ** (attempt - 1))
 
 
 def _post_once(
