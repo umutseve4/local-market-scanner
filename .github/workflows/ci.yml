@@ -70,10 +70,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install mypy pyarrow
-      # Advisory until the codebase is verified mypy-clean; make it
-      # blocking by removing continue-on-error once a clean run is observed.
       - name: Type check (mypy)
-        continue-on-error: true
         run: mypy
 
   postgres-integration:
