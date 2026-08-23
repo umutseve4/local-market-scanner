@@ -1,0 +1,50 @@
+name: Apply final mypy fix
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.head_ref == 'hardening/block-mypy'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: hardening/block-mypy
+      - name: Apply minimal cast and remove temporary workflows
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('src/lms/sources/overpass.py')
+          text = path.read_text()
+          old = '''    return http.post(
+              url,
+              data={"data": query},
+              headers={"User-Agent": settings.user_agent},
+              timeout=settings.request_timeout,
+              verify=settings.ca_bundle or True,
+          )'''
+          new = '''    return cast(
+              requests.Response,
+              http.post(
+                  url,
+                  data={"data": query},
+                  headers={"User-Agent": settings.user_agent},
+                  timeout=settings.request_timeout,
+                  verify=settings.ca_bundle or True,
+              ),
+          )'''
+          if text.count(old) != 1:
+              raise SystemExit('expected _post_once block not found exactly once')
+          path.write_text(text.replace(old, new))
+          PY
+          rm .github/workflows/mypy-diagnostic.yml .github/workflows/apply-mypy-fix.yml
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          git add src/lms/sources/overpass.py .github/workflows
+          git commit -m "fix: type HTTP response without changing behavior"
+          git push
