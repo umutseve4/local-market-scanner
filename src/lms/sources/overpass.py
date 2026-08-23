@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Iterable
-from typing import Any
+from typing import Any, cast
 
 import requests
 
@@ -185,7 +185,7 @@ def fetch_raw(
                         f"HTTP {response.status_code}", response=response
                     )
                 response.raise_for_status()
-                return response.json()
+                return cast(dict[str, Any], response.json())
             except ValueError as exc:  # JSON decode failure
                 failures.append(f"{url}: invalid JSON ({exc})")
                 logger.warning("Invalid JSON from %s: %s", url, exc)
