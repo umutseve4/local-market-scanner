@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from typing import Any, cast
 
 import requests
@@ -42,11 +42,11 @@ def build_query(
     timeout: int = 180,
 ) -> str:
     """Build an Overpass QL query for the given bounding box and tag filters."""
-    filters = filters or HEALTH_FILTERS
+    active_filters: Mapping[str, Iterable[str]] = filters or HEALTH_FILTERS
     south, west, north, east = bbox
     bbox_str = f"{south},{west},{north},{east}"
     clauses: list[str] = []
-    for key, values in filters.items():
+    for key, values in active_filters.items():
         joined = "|".join(values)
         for element in ("node", "way"):
             clauses.append(f'  {element}["{key}"~"^({joined})$"]({bbox_str});')
@@ -129,7 +129,7 @@ def _retry_delay(
 ) -> float:
     """Honour ``Retry-After`` when present, otherwise use exponential backoff."""
     if response is not None:
-        header = response.headers.get("Retry-After")
+        header = cast(str | None, response.headers.get("Retry-After"))
         if header:
             try:
                 return max(0.0, float(header))
