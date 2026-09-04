@@ -1,32 +1,123 @@
 name: CI
 
 on:
-  pull_request:
   push:
-    branches:
-      - main
-
-permissions:
-  contents: read
+    branches: [main]
+  pull_request:
+    branches: [main]
 
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
 
-      - name: Set up Python
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
-          python-version: "3.13"
+          python-version: ${{ matrix.python-version }}
+          cache: pip
 
-      - name: Install package and test dependencies
-        run: python -m pip install -e ".[test]"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install ruff coverage pyarrow
 
-      - name: Run tests
-        run: pytest -q
+      - name: Lint (ruff)
+        run: ruff check src tests
 
-      - name: Smoke-test CLI help
-        run: market-scan --help
+      - name: Tests with coverage
+        env:
+          PYTHONPATH: src
+        run: |
+          coverage run -m unittest discover -s tests
+          coverage report --fail-under=80
+
+      - name: Smoke test the CLI end to end
+        env:
+          PYTHONPATH: src
+        run: |
+          python -m lms.cli --version
+          python -m lms.cli doctor --offline
+          python -m lms.cli scan --fixture tests/fixtures/overpass_sample.json \
+            --out /tmp/scan.csv --track --db-path /tmp/market.sqlite3
+          python -m lms.cli leads --csv /tmp/scan.csv
+          python -m lms.cli brief --csv /tmp/scan.csv --out /tmp/brief.md
+          test -s /tmp/brief.md
+          python -m lms.cli runs --db-path /tmp/market.sqlite3
+          python -m lms.cli validate --csv /tmp/scan.csv --report /tmp/contract.json
+          test -s /tmp/contract.json
+          python -m lms.cli export --csv /tmp/scan.csv --out-dir /tmp/parquet \
+            --scan-date 2026-01-01
+          test -n "$(find /tmp/parquet -name '*.parquet')"
+
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install mypy pyarrow
+      - name: Type check (mypy)
+        run: mypy
+
+  postgres-integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: lms
+          POSTGRES_PASSWORD: lms
+          POSTGRES_DB: lms
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lms -d lms"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install "psycopg[binary]"
+      - name: Apply schema
+        env:
+          PGPASSWORD: lms
+        run: psql -h localhost -U lms -d lms -f sql/schema.sql
+      - name: Load fixture scan into PostgreSQL
+        env:
+          PYTHONPATH: src
+          LMS_PG_DSN: postgresql://lms:lms@localhost:5432/lms
+        run: |
+          python -m lms.cli scan --fixture tests/fixtures/overpass_sample.json \
+            --out /tmp/scan.csv
+          python -m lms.cli load-pg --csv /tmp/scan.csv
+          # Re-run to prove the ON CONFLICT upsert path is idempotent.
+          python -m lms.cli load-pg --csv /tmp/scan.csv
+      - name: Verify row count
+        env:
+          PGPASSWORD: lms
+        run: |
+          count=$(psql -h localhost -U lms -d lms -tAc "SELECT count(*) FROM businesses;")
+          echo "businesses rows: $count"
+          test "$count" = "5"
