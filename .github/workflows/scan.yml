@@ -1,70 +1,90 @@
-name: scan
+name: Run public market scan
 
 on:
   workflow_dispatch:
     inputs:
-      bbox:
-        description: "Bounding box 'south,west,north,east' (bos birak = Bursa varsayilani)"
+      location:
+        description: City, state, or postal code
         required: false
-        default: ""
-      max_score:
-        description: "Lead esigi (bu skorun altindakiler lead sayilir)"
-        required: true
+        default: "Chicago, IL"
+      query:
+        description: Search term
+        required: false
+        default: "electronics"
+      radius:
+        description: Search radius in miles
+        required: false
         default: "25"
-      limit:
-        description: "Ozette gosterilecek lead sayisi"
-        required: true
-        default: "15"
+      max_results:
+        description: Maximum retained results
+        required: false
+        default: "25"
+      commit_snapshot:
+        description: Commit latest.csv/latest.json to data/snapshots
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: public-market-scan
+  cancel-in-progress: false
 
 jobs:
   scan:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7
-
-      - uses: actions/setup-python@v5
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          python-version: "3.12"
+          persist-credentials: true
 
-      - name: Install
-        run: python -m pip install --quiet -e ".[export]"
-
-      - name: Doctor
-        run: lms doctor
-
-      - name: Scan
-        run: |
-          BBOX_ARG=""
-          if [ -n "${{ github.event.inputs.bbox }}" ]; then
-            BBOX_ARG="--bbox ${{ github.event.inputs.bbox }}"
-          fi
-          lms scan $BBOX_ARG --out leads.csv --sqlite --track --db-path lms.db
-
-      - name: Validate contract
-        run: lms validate --csv leads.csv --report contract_report.md || true
-
-      - name: Brief
-        run: lms brief --csv leads.csv --out brief.md --max-score "${{ github.event.inputs.max_score }}"
-
-      - name: Summary (top leads)
-        run: |
-          {
-            echo "## Tarama ozeti (Bursa saglik sektoru)"
-            echo '```'
-            lms leads --csv leads.csv --max-score "${{ github.event.inputs.max_score }}" --limit "${{ github.event.inputs.limit }}"
-            echo '```'
-            echo ""
-            echo "CSV satir sayisi: $(($(wc -l < leads.csv) - 1))"
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Upload results
-        uses: actions/upload-artifact@v4
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
-          name: scan-results
+          python-version: "3.13"
+
+      - name: Install package
+        run: python -m pip install -e .
+
+      - name: Run scan
+        env:
+          MARKET_SCAN_USER_AGENT: local-market-scanner/0.1.0 (public GitHub repository)
+          PYTHONUNBUFFERED: "1"
+        run: |
+          market-scan \
+            --location "${{ inputs.location }}" \
+            --query "${{ inputs.query }}" \
+            --radius "${{ inputs.radius }}" \
+            --max-results "${{ inputs.max_results }}" \
+            --sources craigslist,ebay \
+            --timeout 12 \
+            --retries 2 \
+            --verbose \
+            --output-csv data/snapshots/latest.csv \
+            --output-json data/snapshots/latest.json
+
+      - name: Upload scan snapshot
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: local-market-scan
           path: |
-            leads.csv
-            lms.db
-            brief.md
-            contract_report.md
-          retention-days: 30
+            data/snapshots/latest.csv
+            data/snapshots/latest.json
+          if-no-files-found: error
+
+      - name: Commit snapshot
+        if: ${{ inputs.commit_snapshot }}
+        run: |
+          if git diff --quiet -- data/snapshots/latest.csv data/snapshots/latest.json; then
+            echo "No snapshot changes to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/snapshots/latest.csv data/snapshots/latest.json
+          git commit -m "chore(data): refresh public scan snapshot"
+          git push
